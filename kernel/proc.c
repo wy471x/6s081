@@ -300,6 +300,8 @@ fork(void)
     if(p->ofile[i])
       np->ofile[i] = filedup(p->ofile[i]);
   np->cwd = idup(p->cwd);
+  // trace mask
+  np->mask = p->mask;
 
   safestrcpy(np->name, p->name, sizeof(p->name));
 
