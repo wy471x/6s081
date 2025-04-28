@@ -1,9 +1,0 @@
-
-xv6 kernel is booting
-
-hart 1 starting
-hart 2 starting
-init: starting sh
-$ trace 2147483647 grep hello README
-3: syscall trace -> 0
-$ qemu-system-riscv64: terminating on signal 15 from pid 24128 (make)

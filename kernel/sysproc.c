@@ -6,30 +6,8 @@
 #include "memlayout.h"
 #include "spinlock.h"
 #include "proc.h"
-
-char *syscallnames[] = {
-    "fork",
-    "exit",
-    "wait",
-    "pipe",
-    "read",
-    "kill",
-    "exec",
-    "fstat",
-    "chdir",
-    "dup",
-    "getpid",
-    "sbrk",
-    "sleep",
-    "uptime",
-    "open",
-    "write",
-    "mknod",
-    "unlink",
-    "link",
-    "mkdir",
-    "close",
-};
+#include "sysinfo.h"
+#include "syscall.h"
 
 uint64
 sys_exit(void)
@@ -130,5 +108,19 @@ sys_trace(void)
     return -1;
   struct proc *p = myproc();
   p->mask = mask;
+  return 0;
+}
+
+uint64
+sys_sysinfo(void)
+{
+  struct proc *p = myproc();
+  struct sysinfo info;
+  if (argaddr(0, (uint64 *)&info) < 0)
+    return -1;
+  info.freemem = freemem();
+  info.nproc = nproc();
+  if (copyout(p->pagetable, p->trapframe->a0, (char *)&info, sizeof(info)) < 0)
+    return -1;
   return 0;
 }

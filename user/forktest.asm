@@ -47,7 +47,7 @@ forktest(void)
 
   print("fork test\n");
   3a:	00000517          	auipc	a0,0x0
-  3e:	3f650513          	addi	a0,a0,1014 # 430 <trace+0xe>
+  3e:	3fe50513          	addi	a0,a0,1022 # 438 <sysinfo+0xe>
   42:	00000097          	auipc	ra,0x0
   46:	fbe080e7          	jalr	-66(ra) # 0 <print>
 
@@ -71,7 +71,7 @@ forktest(void)
   if(n == N){
     print("fork claimed to work N times!\n");
   64:	00000517          	auipc	a0,0x0
-  68:	41c50513          	addi	a0,a0,1052 # 480 <trace+0x5e>
+  68:	42450513          	addi	a0,a0,1060 # 488 <sysinfo+0x5e>
   6c:	00000097          	auipc	ra,0x0
   70:	f94080e7          	jalr	-108(ra) # 0 <print>
     exit(1);
@@ -87,7 +87,7 @@ forktest(void)
     if(wait(0) < 0){
       print("wait stopped early\n");
   86:	00000517          	auipc	a0,0x0
-  8a:	3ba50513          	addi	a0,a0,954 # 440 <trace+0x1e>
+  8a:	3c250513          	addi	a0,a0,962 # 448 <sysinfo+0x1e>
   8e:	00000097          	auipc	ra,0x0
   92:	f72080e7          	jalr	-142(ra) # 0 <print>
       exit(1);
@@ -100,7 +100,7 @@ forktest(void)
   if(wait(0) != -1){
     print("wait got too many\n");
   a0:	00000517          	auipc	a0,0x0
-  a4:	3b850513          	addi	a0,a0,952 # 458 <trace+0x36>
+  a4:	3c050513          	addi	a0,a0,960 # 460 <sysinfo+0x36>
   a8:	00000097          	auipc	ra,0x0
   ac:	f58080e7          	jalr	-168(ra) # 0 <print>
     exit(1);
@@ -127,7 +127,7 @@ forktest(void)
 
   print("fork test OK\n");
   e0:	00000517          	auipc	a0,0x0
-  e4:	39050513          	addi	a0,a0,912 # 470 <trace+0x4e>
+  e4:	39850513          	addi	a0,a0,920 # 478 <sysinfo+0x4e>
   e8:	00000097          	auipc	ra,0x0
   ec:	f18080e7          	jalr	-232(ra) # 0 <print>
 }
@@ -795,3 +795,13 @@ trace:
  424:	00000073          	ecall
  ret
  428:	8082                	ret
+
+000000000000042a <sysinfo>:
+.global sysinfo
+sysinfo:
+ li a7, SYS_sysinfo
+ 42a:	48dd                	li	a7,23
+ ecall
+ 42c:	00000073          	ecall
+ ret
+ 430:	8082                	ret
