@@ -81,6 +81,34 @@ int
 sys_pgaccess(void)
 {
   // lab pgtbl: your code here.
+  // parse first user page address
+  uint64 addr;
+  if(argaddr(0, &addr) < 0)
+    return -1;
+  // parse number of pages
+  int num_pages;
+  if(argint(1, &num_pages) < 0)
+    return -1;
+  uint64 target_addr;
+  if(argaddr(2, &target_addr) < 0)
+    return -1;
+  // calculate the number of pages have been accessed.
+  uint64 mask = 0;
+  for(int i = 0; i < num_pages; i++) {
+    uint64 *pte = walk(myproc()->pagetable, addr + i * PGSIZE, 0);
+    if(*pte & PTE_A) {
+      mask |= (1 << i);
+    }
+  }
+  // clear the accessed bit
+  for(int i = 0; i < num_pages; i++) {
+    uint64 *pte = walk(myproc()->pagetable, addr + i * PGSIZE, 1);
+    *pte &= ~PTE_A;
+  }
+  
+  if(copyout(myproc()->pagetable, target_addr, (char *)&mask, sizeof(mask)) < 0) {
+    return -1;
+  }
   return 0;
 }
 // #endif
