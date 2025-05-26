@@ -66,7 +66,30 @@ usertrap(void)
 
     syscall();
   } else if((which_dev = devintr()) != 0){
-    // ok
+
+  } else if(r_scause() == 13 || r_scause() == 15){ // 13: load page fault, 15: store page fault
+    uint64 va = r_stval();
+    if(va >= MAXVA) {
+      p->killed = 1;
+    } else {
+      pte_t *pte = walk(p->pagetable, va, 0);
+      if(pte && (*pte & PTE_V) && (*pte & PTE_U) && !(*pte & PTE_W)) {
+        // COW 页
+        uint64 pa = PTE2PA(*pte);
+        char *mem;
+        if((mem = kalloc()) == 0){
+          p->killed = 1;
+        } else {
+          memmove(mem, (char*)pa, PGSIZE);
+          uint flags = PTE_FLAGS(*pte);
+          flags |= PTE_W;      // 允许写
+          *pte = PA2PTE((uint64)mem) | flags;
+        }
+      } else {
+        // 非法访问
+        p->killed = 1;
+      }
+    }
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
