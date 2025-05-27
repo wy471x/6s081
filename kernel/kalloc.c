@@ -23,11 +23,19 @@ struct {
   struct run *freelist;
 } kmem;
 
+#define PHYPAGES (PHYSTOP / PGSIZE)
+int refcnt[PHYPAGES];
+struct spinlock refcnt_lock;
+
 void
 kinit()
 {
   initlock(&kmem.lock, "kmem");
   freerange(end, (void*)PHYSTOP);
+  initlock(&refcnt_lock, "refcnt");
+  for(int i = 0; i < PHYPAGES; i++) {
+    refcnt[i] = 0;
+  }
 }
 
 void
@@ -50,6 +58,14 @@ kfree(void *pa)
 
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
+
+  acquire(&refcnt_lock);
+  int index = ((uint64)pa - (uint64)end) / PGSIZE;
+  refcnt[index]--;
+  int ref = refcnt[index];
+  release(&refcnt_lock);
+  if(ref > 0)
+    return; // still in use, don't free
 
   // Fill with junk to catch dangling refs.
   memset(pa, 1, PGSIZE);
@@ -76,7 +92,13 @@ kalloc(void)
     kmem.freelist = r->next;
   release(&kmem.lock);
 
-  if(r)
+  if(r) {
     memset((char*)r, 5, PGSIZE); // fill with junk
+    acquire(&refcnt_lock);
+    int index = ((uint64)r - (uint64)end) / PGSIZE;
+    refcnt[index] = 1;
+    release(&refcnt_lock);
+  }
+    
   return (void*)r;
 }
