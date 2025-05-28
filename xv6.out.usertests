@@ -1,8 +1,8 @@
 
 xv6 kernel is booting
 
-hart 2 starting
 hart 1 starting
+hart 2 starting
 init: starting sh
 $ usertests
 usertests starting
@@ -11,4 +11,4 @@ test manywrites: OK
 test execout: OK
 test copyin: OK
 test copyout: panic: walk
-qemu-system-riscv64: terminating on signal 15 from pid 21867 (<unknown process>)
+qemu-system-riscv64: terminating on signal 15 from pid 3431 (<unknown process>)

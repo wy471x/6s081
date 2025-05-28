@@ -15,7 +15,7 @@ extern char end[];
 
 extern struct spinlock refcnt_lock;
 
-#define PHYPAGES (PHYSTOP / PGSIZE)
+#define PHYPAGES ((PHYSTOP - KERNBASE) / PGSIZE)
 extern int refcnt[PHYPAGES];
 
 // in kernelvec.S, calls kerneltrap().
@@ -74,47 +74,29 @@ void usertrap(void)
   else if ((which_dev = devintr()) != 0)
   {
   }
-  else if (r_scause() == 13 || r_scause() == 15)
-  { // 13: load page fault, 15: store page fault
+  else if (r_scause() == 15)
+  { 
     uint64 va = r_stval();
-    if (va >= MAXVA)
-    {
-      p->killed = 1;
+    if(va > MAXVA) p->killed = 1; // invalid address, kill the process
+    pte_t *pte = walk(p->pagetable, va, 0);
+    if(pte == 0 || (*pte & (PTE_V)) == 0 || (*pte & PTE_U) == 0) {
+      p->killed = 1; // page not present or not user-accessible, kill the process
     }
-    else
-    {
-      pte_t *pte = walk(p->pagetable, va, 0);
-      if (pte && (*pte & PTE_V) && (*pte & PTE_U) && !(*pte & PTE_W))
-      {
-        // COW 页
-        uint64 pa = PTE2PA(*pte);
-        char *mem;
-        if ((mem = kalloc()) == 0)
-        {
-          p->killed = 1;
-        }
-        else
-        {
-          memmove(mem, (char *)pa, PGSIZE);
-          uint flags = PTE_FLAGS(*pte);
-          flags |= PTE_W; // 允许写
-          *pte = PA2PTE((uint64)mem) | flags;
+    uint64 pa = PTE2PA(*pte);
+    uint flags = PTE_FLAGS(*pte);
 
-          // 递减原物理页引用计数
-          acquire(&refcnt_lock);
-          int index = ((uint64)pa - (uint64)end) / PGSIZE;
-          refcnt[index]--;
-          int ref = refcnt[index];
-          release(&refcnt_lock);
-          if (ref == 0)
-            kfree((void *)pa);
-        }
-      }
-      else
-      {
-        // 非法访问
-        p->killed = 1;
-      }
+    char *mem;
+
+    if(!(flags & PTE_C)) p->killed = 1; // not a COW page, so kill the process
+
+    flags |= PTE_W; // set writable flag
+    flags &= ~PTE_C; // clear COW flag
+    if((mem = kalloc()) == 0) {
+      p->killed = 1; // out of memory, kill the process
+    } else {
+      memmove(mem, (char *)pa, PGSIZE); // copy the page content
+      *pte = PA2PTE((uint64)mem) | flags; // update the page table entry
+      kfree((void *)pa); // free the old page
     }
   }
   else

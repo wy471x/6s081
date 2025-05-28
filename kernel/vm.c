@@ -325,20 +325,17 @@ int uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
     if ((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
+
     flags = PTE_FLAGS(*pte);
     flags &= ~PTE_W;
-    *pte = (*pte & ~PTE_W);
-
-    // increment the reference count for the physical page
-    acquire(&refcnt_lock);
-    int index = ((uint64)pa - (uint64)end) / PGSIZE;
-    refcnt[index]++;
-    release(&refcnt_lock);
+    flags |= PTE_C; // mark as copy-on-write
 
     if (mappages(new, i, PGSIZE, pa, flags) != 0)
     {
       goto err;
     }
+    *pte = PA2PTE(pa) | flags;
+    refcnt_incr(pa); // increment reference count for the physical page
   }
   return 0;
 
@@ -371,46 +368,36 @@ int copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
   while (len > 0)
   {
     va0 = PGROUNDDOWN(dstva);
-    pte = walk(pagetable, va0, 0);
-    if (pte == 0 || (*pte & PTE_V) == 0)
-      return -1;
-    if ((*pte & PTE_W) == 0)
-    {
-      // COW: 分配新页，复制内容，更新PTE
-      pa0 = PTE2PA(*pte);
-      if ((mem = kalloc()) == 0)
-        return -1;
-      memmove(mem, (char *)pa0, PGSIZE);
-      uint flags = PTE_FLAGS(*pte);
-      flags |= PTE_W;
-      *pte = PA2PTE((uint64)mem) | flags;
+    
+    if(va0 > MAXVA) return -1;
 
-      // 递减原物理页引用计数并可能释放
-      acquire(&refcnt_lock);
-      int index = ((uint64)pa0 - (uint64)end) / PGSIZE;
-      if (index >= 0 && index < PHYPAGES)
-      {
-        refcnt[index]--;
-        int ref = refcnt[index];
-        release(&refcnt_lock);
-        if (ref == 0)
-          kfree((void *)pa0);
-      }
-      else
-      {
-        release(&refcnt_lock);
-        panic("copyout: invalid refcnt index");
-      }
+    pte = walk(pagetable, va0, 0);
+    if(pte == 0 || (*pte & (PTE_V)) == 0 || (*pte & PTE_U) == 0) {
+      return -1;
     }
-    pa0 = PTE2PA(*pte);
+    uint64 pa = PTE2PA(*pte);
+    uint flags = PTE_FLAGS(*pte);
+    if(!(flags & PTE_C)) return -1; // not a COW page, so can't write to it
+    flags |= PTE_W;
+    flags &= ~PTE_C; // clear COW flag
+    if((mem = kalloc()) == 0) {
+      return -1; // out of memory
+    }
+    memmove(mem, (char *)pa, PGSIZE); // copy the page content
+    *pte = PA2PTE((uint64)mem) | flags; // update the page table entry
+    kfree((void *)pa); // free the old page
+
+
+    pa0 = walkaddr(pagetable, va0);
+    if (pa0 == 0)
+      return -1; // page not present
     n = PGSIZE - (dstva - va0);
     if (n > len)
       n = len;
     memmove((void *)(pa0 + (dstva - va0)), src, n);
-
     len -= n;
     src += n;
-    dstva += n;
+    dstva = va0 + PGSIZE;
   }
   return 0;
 }

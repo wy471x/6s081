@@ -27,15 +27,35 @@ struct {
 int refcnt[PHYPAGES];
 struct spinlock refcnt_lock;
 
+#define PA2PPIDX(pa) (((uint64)(pa) - KERNBASE) / PGSIZE)
+// reference count for each physical page.
+struct {
+  struct spinlock lock; // protects freelist
+  int refcnt_array[PA2PPIDX(PHYSTOP) + 1]; // reference count for each physical page
+} refcnt_recorder;
+
+int refcnt_incr(uint64 pa)
+{
+  acquire(&refcnt_recorder.lock);
+  int refcnt = ++refcnt_recorder.refcnt_array[PA2PPIDX(pa)];
+  release(&refcnt_recorder.lock);
+  return refcnt;
+}
+
+int refcnt_decr(uint64 pa)
+{
+  acquire(&refcnt_recorder.lock);
+  int refcnt = --refcnt_recorder.refcnt_array[PA2PPIDX(pa)];
+  release(&refcnt_recorder.lock);
+  return refcnt;
+}
+
 void
 kinit()
 {
   initlock(&kmem.lock, "kmem");
+  initlock(&refcnt_recorder.lock, "refcnt_recorder");
   freerange(end, (void*)PHYSTOP);
-  initlock(&refcnt_lock, "refcnt");
-  for(int i = 0; i < PHYPAGES; i++) {
-    refcnt[i] = 0;
-  }
 }
 
 void
@@ -43,8 +63,12 @@ freerange(void *pa_start, void *pa_end)
 {
   char *p;
   p = (char*)PGROUNDUP((uint64)pa_start);
-  for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE)
+  for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE) {
+    acquire(&refcnt_recorder.lock);
+    refcnt_recorder.refcnt_array[PA2PPIDX(p)] = 1; // initialize reference count
+    release(&refcnt_recorder.lock);
     kfree(p);
+  }
 }
 
 // Free the page of physical memory pointed at by v,
@@ -59,11 +83,7 @@ kfree(void *pa)
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
 
-  acquire(&refcnt_lock);
-  int index = ((uint64)pa - (uint64)end) / PGSIZE;
-  refcnt[index]--;
-  int ref = refcnt[index];
-  release(&refcnt_lock);
+  int ref = refcnt_decr((uint64)pa);
   if(ref > 0)
     return; // still in use, don't free
 
@@ -88,16 +108,16 @@ kalloc(void)
 
   acquire(&kmem.lock);
   r = kmem.freelist;
-  if(r)
+  if(r) {
     kmem.freelist = r->next;
+    acquire(&refcnt_recorder.lock);
+    refcnt_recorder.refcnt_array[PA2PPIDX(r)] = 1; // reset reference count
+    release(&refcnt_recorder.lock);
+  }  
   release(&kmem.lock);
 
   if(r) {
     memset((char*)r, 5, PGSIZE); // fill with junk
-    acquire(&refcnt_lock);
-    int index = ((uint64)r - (uint64)end) / PGSIZE;
-    refcnt[index] = 1;
-    release(&refcnt_lock);
   }
     
   return (void*)r;
