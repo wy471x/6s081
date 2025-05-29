@@ -16,13 +16,6 @@ extern char etext[]; // kernel.ld sets this to end of kernel code.
 
 extern char trampoline[]; // trampoline.S
 
-extern char end[];
-
-extern struct spinlock refcnt_lock;
-
-#define PHYPAGES (PHYSTOP / PGSIZE)
-extern int refcnt[PHYPAGES];
-
 // Make a direct-map page table for the kernel.
 pagetable_t
 kvmmake(void)
@@ -362,32 +355,12 @@ void uvmclear(pagetable_t pagetable, uint64 va)
 int copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 {
   uint64 n, va0, pa0;
-  pte_t *pte;
-  char *mem;
-
-  while (len > 0)
-  {
+  
+  while(len > 0) {
     va0 = PGROUNDDOWN(dstva);
-    
-    if(va0 > MAXVA) return -1;
-
-    pte = walk(pagetable, va0, 0);
-    if(pte == 0 || (*pte & (PTE_V)) == 0 || (*pte & PTE_U) == 0) {
-      return -1;
-    }
-    uint64 pa = PTE2PA(*pte);
-    uint flags = PTE_FLAGS(*pte);
-    if(!(flags & PTE_C)) return -1; // not a COW page, so can't write to it
-    flags |= PTE_W;
-    flags &= ~PTE_C; // clear COW flag
-    if((mem = kalloc()) == 0) {
-      return -1; // out of memory
-    }
-    memmove(mem, (char *)pa, PGSIZE); // copy the page content
-    *pte = PA2PTE((uint64)mem) | flags; // update the page table entry
-    kfree((void *)pa); // free the old page
-
-
+    if(cow(dstva, pagetable) < 0)
+      return -1; // copy-on-write failed
+    // If the page is not present, we need to allocate it.
     pa0 = walkaddr(pagetable, va0);
     if (pa0 == 0)
       return -1; // page not present
@@ -395,6 +368,7 @@ int copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
     if (n > len)
       n = len;
     memmove((void *)(pa0 + (dstva - va0)), src, n);
+
     len -= n;
     src += n;
     dstva = va0 + PGSIZE;

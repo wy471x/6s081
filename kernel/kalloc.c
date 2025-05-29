@@ -23,10 +23,6 @@ struct {
   struct run *freelist;
 } kmem;
 
-#define PHYPAGES (PHYSTOP / PGSIZE)
-int refcnt[PHYPAGES];
-struct spinlock refcnt_lock;
-
 #define PA2PPIDX(pa) (((uint64)(pa) - KERNBASE) / PGSIZE)
 // reference count for each physical page.
 struct {
@@ -64,9 +60,9 @@ freerange(void *pa_start, void *pa_end)
   char *p;
   p = (char*)PGROUNDUP((uint64)pa_start);
   for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE) {
-    acquire(&refcnt_recorder.lock);
+    // acquire(&refcnt_recorder.lock);
     refcnt_recorder.refcnt_array[PA2PPIDX(p)] = 1; // initialize reference count
-    release(&refcnt_recorder.lock);
+    // release(&refcnt_recorder.lock);
     kfree(p);
   }
 }
@@ -110,9 +106,9 @@ kalloc(void)
   r = kmem.freelist;
   if(r) {
     kmem.freelist = r->next;
-    acquire(&refcnt_recorder.lock);
+    // acquire(&refcnt_recorder.lock);
     refcnt_recorder.refcnt_array[PA2PPIDX(r)] = 1; // reset reference count
-    release(&refcnt_recorder.lock);
+    // release(&refcnt_recorder.lock);
   }  
   release(&kmem.lock);
 

@@ -11,15 +11,9 @@ uint ticks;
 
 extern char trampoline[], uservec[], userret[];
 
-extern char end[];
-
-extern struct spinlock refcnt_lock;
-
-#define PHYPAGES ((PHYSTOP - KERNBASE) / PGSIZE)
-extern int refcnt[PHYPAGES];
-
 // in kernelvec.S, calls kerneltrap().
 void kernelvec();
+int cow(uint64 va, pagetable_t pagetable);
 
 extern int devintr();
 
@@ -76,27 +70,10 @@ void usertrap(void)
   }
   else if (r_scause() == 15)
   { 
-    uint64 va = r_stval();
-    if(va > MAXVA) p->killed = 1; // invalid address, kill the process
-    pte_t *pte = walk(p->pagetable, va, 0);
-    if(pte == 0 || (*pte & (PTE_V)) == 0 || (*pte & PTE_U) == 0) {
-      p->killed = 1; // page not present or not user-accessible, kill the process
-    }
-    uint64 pa = PTE2PA(*pte);
-    uint flags = PTE_FLAGS(*pte);
-
-    char *mem;
-
-    if(!(flags & PTE_C)) p->killed = 1; // not a COW page, so kill the process
-
-    flags |= PTE_W; // set writable flag
-    flags &= ~PTE_C; // clear COW flag
-    if((mem = kalloc()) == 0) {
-      p->killed = 1; // out of memory, kill the process
-    } else {
-      memmove(mem, (char *)pa, PGSIZE); // copy the page content
-      *pte = PA2PTE((uint64)mem) | flags; // update the page table entry
-      kfree((void *)pa); // free the old page
+    if(cow(r_stval(), p->pagetable) < 0)
+    {
+      // printf("usertrap(): copy-on-write failed for va %p pid=%d\n", r_stval(), p->pid);
+      p->killed = 1;
     }
   }
   else
@@ -114,6 +91,34 @@ void usertrap(void)
     yield();
 
   usertrapret();
+}
+
+int cow(uint64 va, pagetable_t pagetable)
+{
+  if (va >= MAXVA)
+    return -1;
+
+  pte_t *pte = walk(pagetable, va, 0);
+  if (pte == 0 || (*pte & PTE_V) == 0 || (*pte & PTE_U) == 0)
+    return -1; // page not present or not user-accessible
+
+  uint64 pa = PTE2PA(*pte);
+  uint flags = PTE_FLAGS(*pte);
+
+  if(flags & PTE_W) return 0;
+  if (!(flags & PTE_C)) return -1; // not a COW page
+
+  flags |= PTE_W; // set writable flag
+  flags &= ~PTE_C; // clear COW flag
+
+  char *mem;
+  if ((mem = kalloc()) == 0)
+    return -1; // out of memory
+
+  memmove(mem, (char *)pa, PGSIZE); // copy the page content
+  *pte = PA2PTE((uint64)mem) | flags; // update the page table entry
+  kfree((void *)pa); // free the old page
+  return 0;
 }
 
 //
